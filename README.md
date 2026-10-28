@@ -5,7 +5,7 @@
 ## 怎麼用
 
 **方法一：exe（推薦）**
-到 [Releases](https://github.com/jiawenchong/video-editor/releases) 下載 `MacaronCut.exe`，點兩下就會用 Edge（或 Chrome）開成一個獨立的剪輯視窗。
+在 repo 首頁點 `MacaronCut.exe` → 右上角下載按鈕，點兩下就會用 Edge（或 Chrome）開成一個獨立的剪輯視窗。
 
 > 第一次執行如果出現「Windows 已保護您的電腦」，按「其他資訊 → 仍要執行」。這是因為 exe 沒有數位簽章，不是病毒。若公司電腦完全不能執行 exe，請改用方法二。
 
