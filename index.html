@@ -112,7 +112,9 @@ button,input,select{font:inherit;color:inherit}
 .chip[disabled]{opacity:.45;cursor:not-allowed}
 .speed-row{display:flex;align-items:center;gap:10px}
 .speed-row input{flex:1;min-width:0;accent-color:var(--blue-deep)}
-.speed-row output{font-family:var(--f-display);font-weight:600;min-width:3.4em;text-align:right;font-variant-numeric:tabular-nums}
+.num{display:inline-flex;align-items:center;gap:3px;font-family:var(--f-display);font-weight:600}
+.num input{width:4.6em;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:4px 6px;text-align:right;font-family:var(--f-display);font-weight:600;font-variant-numeric:tabular-nums}
+.speed-scale{display:flex;justify-content:space-between;color:var(--ink-soft);font-size:11px;font-family:var(--f-mono);margin-top:-6px;padding-right:5.6em}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;margin:0;font-size:13px}
 .keys dt{margin:0}
 .keys dd{margin:0;color:var(--ink-soft)}
@@ -210,7 +212,7 @@ kbd{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);border:
       <label class="btn" for="fileIn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>加入影片
       </label>
-      <input type="file" id="fileIn" accept="video/*" multiple hidden>
+      <input type="file" id="fileIn" accept="video/*,.avi" multiple hidden>
       <button class="btn primary" id="exportOpen" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>匯出影片
       </button>
@@ -224,7 +226,7 @@ kbd{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);border:
         <div class="drop" id="drop">
           <div class="dots"><i style="background:var(--pink)"></i><i style="background:var(--butter)"></i><i style="background:var(--mint)"></i><i style="background:var(--lav)"></i><i style="background:var(--sky)"></i></div>
           <h2>把影片拖進來開始剪</h2>
-          <p>支援 MP4、MOV、WebM。可以一次加入好幾支，會依序接在一起。</p>
+          <p>支援 MP4、MOV、WebM、AVI。可以一次加入好幾支，會依序接在一起。</p>
           <div class="row">
             <label class="btn primary" for="fileIn">選擇影片</label>
             <button class="btn pink" id="demoBtn">試用示範影片</button>
@@ -249,9 +251,10 @@ kbd{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);border:
         <h3>播放速度</h3>
         <div class="chips" id="speedChips"></div>
         <div class="speed-row">
-          <input type="range" id="speedRange" min="0.25" max="8" step="0.05" value="1" aria-label="自訂速度" disabled>
-          <output id="speedOut">1.0×</output>
+          <input type="range" id="speedRange" min="0" max="1000" step="1" value="232" aria-label="自訂速度" disabled>
+          <label class="num"><input type="number" id="speedNum" min="0.25" max="100" step="0.25" value="1" aria-label="輸入速度" disabled>×</label>
         </div>
+        <div class="speed-scale"><span>0.25×</span><span>100×</span></div>
         <button class="btn" id="speedAll" disabled>套用到全部片段</button>
       </div>
       <div class="card">
@@ -335,6 +338,15 @@ kbd{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);border:
       <button class="btn primary" id="startBtn">開始匯出</button>
       <button class="btn primary" id="saveBtn" hidden>儲存影片檔</button>
     </div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="convBg" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="convTitle">
+    <header><h2 id="convTitle">正在把 AVI 轉成 MP4</h2></header>
+    <p class="clip-info" id="convName"></p>
+    <div class="prog"><div class="bar"><i id="convBar"></i></div><p id="convText">讀取中…</p></div>
+    <div class="actions"><button class="btn" id="convCancel">取消</button></div>
   </div>
 </div>
 
@@ -2253,7 +2265,10 @@ if (typeof module === "object" && typeof module.exports === "object") Object.ass
 const $ = id => document.getElementById(id);
 const SR = 48000, FPS = 30, PAD = 16;
 const MAC = ["--pink","--mint","--lav","--butter","--peach","--sky"];
-const SPEEDS = [0.5, 1, 1.5, 2, 3, 4];
+const SPEEDS = [0.5, 1, 1.5, 2, 4, 10, 30, 100];
+const SPMIN = 0.25, SPMAX = 100;
+function sliderToSpeed(v){ const s = SPMIN * Math.pow(SPMAX / SPMIN, v / 1000); return s < 2 ? Math.round(s * 20) / 20 : s < 10 ? Math.round(s * 10) / 10 : s < 30 ? Math.round(s * 2) / 2 : Math.round(s); }
+function speedToSlider(s){ return Math.round(1000 * Math.log(s / SPMIN) / Math.log(SPMAX / SPMIN)); }
 
 const sources = [];      // {id,name,file,url,duration,width,height,thumbs:{step,imgs},audio}
 let segs = [];           // {id,src,a,b,speed,c}
@@ -2273,7 +2288,7 @@ function fmt(t){ t = Math.max(0, t || 0); const m = Math.floor(t/60), s = t - m*
 function fmtSpeed(s){ return (Math.round(s*100)/100).toString().replace(/\.0+$/,"") + "×"; }
 function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 let toastTimer;
-function toast(msg){ const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600); }
+function toast(msg, ms){ const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, ms || 2600); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function once(el, ev, ms){ return new Promise(res => { let done=false; const f = () => { if(done) return; done=true; el.removeEventListener(ev,f); res(true); };
   el.addEventListener(ev, f); if(ms) setTimeout(() => { if(!done){ done=true; el.removeEventListener(ev,f); res(false);} }, ms); }); }
@@ -2297,13 +2312,316 @@ function locate(t){
 function snapshot(){ undoStack.push(JSON.stringify({segs, sel})); if (undoStack.length > 100) undoStack.shift(); redoStack = []; }
 function restore(json){ const o = JSON.parse(json); segs = o.segs; sel = o.sel; afterEdit(); }
 
+/* ---------- AVI import: read the AVI in JS, decode, re-encode to MP4 ---------- */
+const DHT_B64 = "/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6";
+let dhtBytes = null;
+function stdDht(){ if (!dhtBytes){ const s = atob(DHT_B64); dhtBytes = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) dhtBytes[i] = s.charCodeAt(i); } return dhtBytes; }
+// Many MJPEG AVI frames leave out the Huffman tables; put the standard ones back.
+function fixMjpeg(u8){
+  if (u8[0] !== 0xFF || u8[1] !== 0xD8) return u8;
+  let i = 2;
+  while (i + 4 <= u8.length){
+    if (u8[i] !== 0xFF) return u8;
+    const m = u8[i + 1];
+    if (m === 0xC4) return u8;
+    if (m === 0xDA){
+      const d = stdDht(), out = new Uint8Array(u8.length + d.length);
+      out.set(u8.subarray(0, i)); out.set(d, i); out.set(u8.subarray(i), i + d.length); return out;
+    }
+    if (m === 0xFF){ i++; continue; }
+    if (m === 0x01 || (m >= 0xD0 && m <= 0xD8)){ i += 2; continue; }
+    i += 2 + ((u8[i + 2] << 8) | u8[i + 3]);
+  }
+  return u8;
+}
+class BlockReader {
+  constructor(file){ this.f = file; this.size = file.size; this.bs = 8 << 20; this.base = -1; this.buf = null; }
+  async bytes(pos, len){
+    len = Math.max(0, Math.min(len, this.size - pos));
+    if (len > this.bs / 2) return new Uint8Array(await this.f.slice(pos, pos + len).arrayBuffer());
+    if (this.base < 0 || pos < this.base || pos + len > this.base + this.buf.length){
+      this.base = pos; this.buf = new Uint8Array(await this.f.slice(pos, Math.min(this.size, pos + this.bs)).arrayBuffer());
+    }
+    return this.buf.subarray(pos - this.base, pos - this.base + len);
+  }
+  async u32(pos){ const b = await this.bytes(pos, 4); return b.length < 4 ? 0 : (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0; }
+  async cc(pos){ const b = await this.bytes(pos, 4); return String.fromCharCode(...b); }
+}
+async function aviWalk(r, p, end, info, cur){
+  while (p + 8 <= end){
+    const id = await r.cc(p), sz = await r.u32(p + 4);
+    let next = p + 8 + sz + (sz & 1);
+    if (id === "LIST"){
+      const t = await r.cc(p + 8);
+      let lend = p + 8 + sz; if (sz === 0 || lend > end) lend = end;
+      if (t === "hdrl") await aviWalk(r, p + 12, lend, info);
+      else if (t === "strl"){ const s = {}; info.streams.push(s); await aviWalk(r, p + 12, lend, info, s); }
+      else if (t === "movi") info.movi.push([p + 12, lend]);
+      if (sz === 0 || p + 8 + sz > end) next = end;
+    } else if (id === "avih"){
+      const b = (await r.bytes(p + 8, 40)).slice(); const dv = new DataView(b.buffer);
+      if (b.length >= 40){ info.usPerFrame = dv.getUint32(0, true); info.width = dv.getUint32(32, true); info.height = dv.getUint32(36, true); }
+    } else if (id === "strh" && cur){
+      const b = (await r.bytes(p + 8, Math.min(sz, 56))).slice(); const dv = new DataView(b.buffer);
+      cur.type = String.fromCharCode(...b.subarray(0, 4)); cur.handler = String.fromCharCode(...b.subarray(4, 8));
+      cur.scale = dv.getUint32(20, true); cur.rate = dv.getUint32(24, true);
+    } else if (id === "strf" && cur){
+      cur.strf = (await r.bytes(p + 8, sz)).slice();
+    }
+    if (next <= p) break;
+    p = next;
+  }
+}
+async function* aviChunks(r, start, end){
+  let p = start;
+  while (p + 8 <= end){
+    const id = await r.cc(p), sz = await r.u32(p + 4);
+    if (id === "LIST"){ yield* aviChunks(r, p + 12, Math.min(end, p + 8 + sz)); }
+    else if (p + 8 + sz <= r.size) yield { id, pos: p + 8, size: sz };
+    else break;
+    const next = p + 8 + sz + (sz & 1);
+    if (next <= p) break;
+    p = next;
+  }
+}
+function annexbNals(u8){
+  const out = []; let i = 0, start = -1;
+  while (i + 3 <= u8.length){
+    if (u8[i] === 0 && u8[i + 1] === 0 && (u8[i + 2] === 1 || (u8[i + 2] === 0 && u8[i + 3] === 1))){
+      const sc = u8[i + 2] === 1 ? 3 : 4;
+      if (start >= 0) out.push(u8.subarray(start, i));
+      i += sc; start = i;
+    } else i++;
+  }
+  if (start >= 0) out.push(u8.subarray(start));
+  return out;
+}
+function lengthNals(u8){
+  const out = []; let i = 0;
+  while (i + 4 <= u8.length){ const n = (u8[i] << 24 | u8[i + 1] << 16 | u8[i + 2] << 8 | u8[i + 3]) >>> 0; i += 4; if (n === 0 || i + n > u8.length) break; out.push(u8.subarray(i, i + n)); i += n; }
+  return out;
+}
+const hex2 = n => n.toString(16).padStart(2, "0");
+const UNSUPPORTED_NAMES = { XVID: "Xvid", DIVX: "DivX", DX50: "DivX 5", FMP4: "MPEG-4", MP4V: "MPEG-4", MP42: "MS MPEG-4 v2", MP43: "MS MPEG-4 v3", DIV3: "DivX 3", CVID: "Cinepak", IV50: "Indeo 5", IV41: "Indeo 4", MSVC: "Microsoft Video 1", WMV3: "WMV 9", HEVC: "H.265", H265: "H.265", HVC1: "H.265" };
+
+async function convertAvi(file, onProg, isCancelled){
+  const r = new BlockReader(file);
+  if (await r.cc(0) !== "RIFF" || await r.cc(8) !== "AVI ") throw new Error("這個檔案不是有效的 AVI。");
+  const info = { streams: [], movi: [], usPerFrame: 0, width: 0, height: 0 };
+  for (let pos = 0; pos + 12 <= r.size;){
+    if (await r.cc(pos) !== "RIFF") break;
+    const sz = await r.u32(pos + 4);
+    let end = pos + 8 + sz; if (sz === 0 || end > r.size) end = r.size;
+    await aviWalk(r, pos + 12, end, info);
+    pos = end + (sz & 1);
+  }
+  const vi = info.streams.findIndex(s => s.type === "vids" && s.strf);
+  if (vi < 0) throw new Error("這個 AVI 裡找不到影像。");
+  if (!info.movi.length) throw new Error("這個 AVI 沒有影像資料，可能錄影時中斷了。");
+  const vs = info.streams[vi];
+  const ai = info.streams.findIndex(s => s.type === "auds" && s.strf);
+  const as = ai >= 0 ? info.streams[ai] : null;
+  const bi = new DataView(vs.strf.buffer);
+  const bw = bi.getInt32(4, true), bh = bi.getInt32(8, true), bits = bi.getUint16(14, true), compRaw = bi.getUint32(16, true);
+  const fourcc = (compRaw === 0 || compRaw === 3) ? "RGB" : String.fromCharCode(...vs.strf.subarray(16, 20)).replace(/\0/g, "").trim().toUpperCase();
+  let kind;
+  if (fourcc === "RGB") kind = (bits === 24 || bits === 32) ? "rgb" : null;
+  else if (["MJPG","AVRN","DMB1","JPEG","MJPA","LJPG","AVDJ"].includes(fourcc)) kind = "mjpg";
+  else if (["H264","X264","AVC1","DAVC","VSSH","AVC","SMV2"].includes(fourcc)) kind = "h264";
+  if (!kind){
+    const nm = UNSUPPORTED_NAMES[fourcc] ? `${fourcc}（${UNSUPPORTED_NAMES[fourcc]}）` : (fourcc === "RGB" ? `${bits} 位元 RGB` : fourcc);
+    throw new Error(`這個 AVI 的影像編碼是 ${nm}，目前還沒辦法匯入。`);
+  }
+  const W0 = Math.abs(bw) || info.width, H0 = Math.abs(bh) || info.height;
+  const W = Math.max(2, W0 - (W0 & 1)), H = Math.max(2, H0 - (H0 & 1));
+  let fps = vs.rate && vs.scale ? vs.rate / vs.scale : (info.usPerFrame ? 1e6 / info.usPerFrame : 30);
+  if (!isFinite(fps) || fps < 1 || fps > 240) fps = 30;
+
+  const vcfg = await pickVideoConfig("avc", W, H, Math.max(2_000_000, Math.round(W * H * fps * 0.15)));
+  if (!vcfg) throw new Error("這台電腦無法把這個解析度轉成 MP4。");
+  vcfg.framerate = fps;
+
+  // audio format
+  let atag = 0, ach = 0, arate = 0, abits = 0;
+  if (as){
+    const wf = new DataView(as.strf.buffer);
+    atag = wf.getUint16(0, true); ach = wf.getUint16(2, true); arate = wf.getUint32(4, true); abits = as.strf.length >= 16 ? wf.getUint16(14, true) : 16;
+    if (atag === 0xFFFE && as.strf.length >= 26) atag = wf.getUint16(24, true);
+  }
+  const audioKnown = as && ach > 0 && arate > 0 && [1, 3, 6, 7, 0x50, 0x55].includes(atag);
+  const acfg = audioKnown ? await pickAudioConfig() : null;
+
+  const muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: "avc", width: W, height: H },
+    audio: acfg ? { codec: acfg.mux, numberOfChannels: 2, sampleRate: SR } : undefined,
+    fastStart: "in-memory", firstTimestampBehavior: "offset"
+  });
+  let err = null;
+  const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: e => err = e });
+  venc.configure(vcfg);
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d", { alpha: false });
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  let n = 0, drawn = false;
+  const gop = Math.max(1, Math.round(fps * 2));
+  const emit = () => {
+    const f = new VideoFrame(cv, { timestamp: Math.round(n * 1e6 / fps), duration: Math.round(1e6 / fps) });
+    venc.encode(f, { keyFrame: n % gop === 0 }); f.close(); n++;
+  };
+
+  let vdec = null, avcc = false, gotKey = false;
+  if (kind === "h264"){
+    vdec = new VideoDecoder({ output: fr => { try { ctx.drawImage(fr, 0, 0); drawn = true; emit(); } finally { fr.close(); } }, error: e => err = e });
+  }
+  const startH264 = async (u8) => {
+    const extra = vs.strf.length > 40 ? vs.strf.subarray(40) : null;
+    let sps = null, description;
+    if (extra && extra[0] === 1 && extra.length > 7){ avcc = true; description = extra.slice(); sps = extra.subarray(8, 8 + ((extra[6] << 8) | extra[7])); }
+    else {
+      avcc = annexbNals(u8).length === 0;
+      const nals = avcc ? lengthNals(u8) : annexbNals(u8);
+      sps = nals.find(x => (x[0] & 31) === 7);
+      if (!sps && extra) sps = annexbNals(extra).find(x => (x[0] & 31) === 7);
+    }
+    if (!sps || sps.length < 4) return false;
+    const cfg = { codec: "avc1." + hex2(sps[1]) + hex2(sps[2]) + hex2(sps[3]), optimizeForLatency: false };
+    if (description) cfg.description = description;
+    const sup = await VideoDecoder.isConfigSupported(cfg).catch(() => ({ supported: false }));
+    if (!sup.supported) throw new Error("這台電腦的瀏覽器無法讀取這個 AVI 裡的 H.264 影像。");
+    vdec.configure(cfg);
+    return true;
+  };
+  const isKey = u8 => (avcc ? lengthNals(u8) : annexbNals(u8)).some(x => (x[0] & 31) === 5);
+
+  const aParts = []; let aBytes = 0;
+  const vTag = String(vi).padStart(2, "0"), aTag = ai >= 0 ? String(ai).padStart(2, "0") : null;
+  const span = info.movi.reduce((s, [a, b]) => s + (b - a), 0) || 1;
+  let done = 0, bad = 0, tick = 0, hdrStarted = false;
+  const rowBytes = ((W0 * bits / 8) + 3) & ~3;
+  const img = kind === "rgb" ? ctx.createImageData(W, H) : null;
+
+  for (const [ms, me] of info.movi){
+    for await (const ch of aviChunks(r, ms, me)){
+      if (isCancelled()) throw "cancel";
+      if (err) throw err;
+      const sid = ch.id.slice(0, 2), typ = ch.id.slice(2);
+      if (sid === vTag && (typ === "dc" || typ === "db")){
+        if (ch.size === 0){ if (kind !== "h264" && drawn) emit(); }
+        else {
+          const data = await r.bytes(ch.pos, ch.size);
+          if (kind === "mjpg"){
+            try {
+              const bmp = await createImageBitmap(new Blob([fixMjpeg(data)], { type: "image/jpeg" }));
+              ctx.drawImage(bmp, 0, 0); bmp.close(); drawn = true;
+            } catch(e){ if (++bad > 20 && !drawn) throw new Error("這個 AVI 的畫面解不開，檔案可能損毀。"); }
+            if (drawn) emit();
+          } else if (kind === "rgb"){
+            const px = img.data, bottomUp = bh > 0, bpp = bits / 8;
+            for (let y = 0; y < H; y++){
+              const row = bottomUp ? (H0 - 1 - y) : y; let s = row * rowBytes, d = y * W * 4;
+              if (s + W * bpp > data.length) break;
+              for (let x = 0; x < W; x++, s += bpp, d += 4){ px[d] = data[s + 2]; px[d + 1] = data[s + 1]; px[d + 2] = data[s]; px[d + 3] = 255; }
+            }
+            ctx.putImageData(img, 0, 0); drawn = true; emit();
+          } else {
+            if (!hdrStarted){ if (!(await startH264(data))) { done += ch.size; continue; } hdrStarted = true; }
+            const key = isKey(data);
+            if (!gotKey && !key){ done += ch.size; continue; }
+            gotKey = true;
+            vdec.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp: Math.round(n * 1e6 / fps), data }));
+            while (vdec.decodeQueueSize > 8) await sleep(1);
+          }
+        }
+        while (venc.encodeQueueSize > 6) await sleep(1);
+      } else if (aTag && sid === aTag && typ === "wb" && ch.size > 0){
+        aParts.push((await r.bytes(ch.pos, ch.size)).slice()); aBytes += ch.size;
+      }
+      done += ch.size + 8;
+      if (++tick % 15 === 0) onProg(Math.min(0.97, done / span) * 0.9, n);
+    }
+  }
+  if (vdec){ if (vdec.state === "configured") await vdec.flush(); vdec.close(); }
+  if (err) throw err;
+  if (n === 0) throw new Error("這個 AVI 讀不到任何畫面。");
+  await venc.flush(); venc.close();
+  const videoDur = n / fps;
+
+  if (acfg){
+    onProg(0.92, n);
+    const all = new Uint8Array(aBytes); let o = 0; for (const p of aParts){ all.set(p, o); o += p.length; }
+    let buf = null;
+    try {
+      if (atag === 0x55 || atag === 0x50){
+        buf = await new OfflineAudioContext(2, 1, SR).decodeAudioData(all.buffer);
+      } else {
+        const bps = atag === 6 || atag === 7 ? 1 : Math.max(1, abits >> 3);
+        const frames = Math.floor(all.length / (bps * ach));
+        if (frames > 0){
+          const src = new AudioBuffer({ length: frames, numberOfChannels: Math.min(ach, 32), sampleRate: Math.min(768000, Math.max(3000, arate)) });
+          const dv = new DataView(all.buffer);
+          const chans = []; for (let c = 0; c < src.numberOfChannels; c++) chans.push(src.getChannelData(c));
+          const alaw = v => { v ^= 0x55; let t = (v & 15) << 4, seg = (v & 0x70) >> 4; t = seg === 0 ? t + 8 : seg === 1 ? t + 0x108 : (t + 0x108) << (seg - 1); return ((v & 0x80) ? t : -t) / 32768; };
+          const ulaw = v => { v = ~v & 255; let t = ((v & 15) << 3) + 0x84; t <<= (v & 0x70) >> 4; return ((v & 0x80) ? (0x84 - t) : (t - 0x84)) / 32768; };
+          for (let i = 0; i < frames; i++){
+            for (let c = 0; c < chans.length; c++){
+              const off = (i * ach + c) * bps; let v;
+              if (atag === 6) v = alaw(all[off]);
+              else if (atag === 7) v = ulaw(all[off]);
+              else if (atag === 3) v = bps === 8 ? dv.getFloat64(off, true) : dv.getFloat32(off, true);
+              else if (bps === 1) v = (all[off] - 128) / 128;
+              else if (bps === 2) v = dv.getInt16(off, true) / 32768;
+              else if (bps === 3) v = ((all[off] | all[off + 1] << 8 | all[off + 2] << 16) << 8 >> 8) / 8388608;
+              else v = dv.getInt32(off, true) / 2147483648;
+              chans[c][i] = v;
+            }
+          }
+          const oc = new OfflineAudioContext(2, Math.max(1, Math.ceil(frames * SR / src.sampleRate)), SR);
+          const node = oc.createBufferSource(); node.buffer = src; node.connect(oc.destination); node.start();
+          buf = await oc.startRendering();
+        }
+      }
+    } catch(e){ buf = null; }
+    const S = Math.round(videoDur * SR);
+    const L = new Float32Array(S), R = new Float32Array(S);
+    if (buf){ const c0 = buf.getChannelData(0), c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0; L.set(c0.subarray(0, S)); R.set(c1.subarray(0, S)); }
+    const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: e => err = e });
+    aenc.configure(acfg.cfg);
+    for (let off = 0; off < S; off += 4800){
+      const k = Math.min(4800, S - off); const d = new Float32Array(k * 2); d.set(L.subarray(off, off + k), 0); d.set(R.subarray(off, off + k), k);
+      const ad = new AudioData({ format: "f32-planar", sampleRate: SR, numberOfFrames: k, numberOfChannels: 2, timestamp: Math.round(off * 1e6 / SR), data: d });
+      aenc.encode(ad); ad.close();
+      if (aenc.encodeQueueSize > 20) await sleep(1);
+    }
+    await aenc.flush(); aenc.close();
+    if (err) throw err;
+  }
+  muxer.finalize();
+  onProg(1, n);
+  return new File([muxer.target.buffer], file.name.replace(/\.avi$/i, "") + ".mp4", { type: "video/mp4" });
+}
+let convCancelled = false;
+async function importAvi(file){
+  if (!canEncode || typeof Mp4Muxer === "undefined") throw new Error("這個瀏覽器不支援轉檔，請用最新版 Edge 或 Chrome。");
+  convCancelled = false;
+  $("convBg").hidden = false; $("convName").textContent = file.name; $("convBar").style.width = "0%"; $("convText").textContent = "讀取中…";
+  try {
+    return await convertAvi(file, (f, frames) => { $("convBar").style.width = Math.round(f * 100) + "%"; $("convText").textContent = `已轉換 ${frames} 格畫面 · ${Math.round(f * 100)}%`; }, () => convCancelled);
+  } finally { $("convBg").hidden = true; }
+}
+$("convCancel").onclick = () => { convCancelled = true; $("convText").textContent = "正在停止…"; };
+
 /* ---------- sources ---------- */
 async function addFiles(files){
-  const list = [...files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name));
+  const list = [...files].filter(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name));
   if (!list.length){ toast("請選擇影片檔"); return; }
   pause();
   let added = 0;
-  for (const file of list){
+  for (let file of list){
+    if (/\.avi$/i.test(file.name) || /avi|msvideo/i.test(file.type)){
+      try { file = await importAvi(file); }
+      catch(e){ if (e !== "cancel") toast(`「${file.name}」：${e && e.message ? e.message : e}`, 7000); else toast("已取消匯入"); continue; }
+    }
     const url = URL.createObjectURL(file);
     const v = document.createElement("video"); v.muted = true; v.preload = "metadata"; v.src = url;
     const ok = await Promise.race([once(v, "loadedmetadata").then(() => true), once(v, "error").then(() => false), sleep(15000).then(() => false)]);
@@ -2374,17 +2692,38 @@ async function startSeg(i, t, token){
   await ensureSrc(s.src);
   if (token !== playToken || !playing) return;
   preview.currentTime = s.a + (t - starts[i]) * s.speed;
-  preview.playbackRate = s.speed;
-  preview.preservesPitch = true;
   playIdx = i;
-  try { await preview.play(); } catch(e){}
+  // Browsers cap playbackRate at 16x; above that, preview by jumping frames on a clock.
+  seekMode = s.speed > 16;
+  if (seekMode){
+    preview.pause(); seekClock = { t0: performance.now(), out0: t };
+  } else {
+    try { preview.playbackRate = s.speed; } catch(e){ preview.playbackRate = 1; }
+    preview.preservesPitch = true;
+    try { await preview.play(); } catch(e){}
+  }
   if (token !== playToken || !playing) return;
   requestAnimationFrame(() => tick(token));
 }
+let seekMode = false, seekClock = null;
 function tick(token){
   if (token !== playToken || !playing) return;
   const s = segs[playIdx];
   if (!s){ pause(); return; }
+  if (seekMode){
+    const out = seekClock.out0 + (performance.now() - seekClock.t0) / 1000;
+    const end = starts[playIdx] + (s.b - s.a) / s.speed;
+    if (out >= end){
+      if (playIdx + 1 < segs.length){ playT = starts[playIdx + 1]; startSeg(playIdx + 1, playT, token); }
+      else { playT = total; pause(); showFrame(Math.max(0, total - 0.001)); }
+      updateHead(); return;
+    }
+    playT = out;
+    if (!preview.seeking) preview.currentTime = Math.min(s.b - 0.001, s.a + (out - starts[playIdx]) * s.speed);
+    updateHead(true);
+    requestAnimationFrame(() => tick(token));
+    return;
+  }
   const ct = preview.currentTime;
   if (ct >= s.b - 0.015 || preview.ended){
     if (playIdx + 1 < segs.length){
@@ -2560,7 +2899,8 @@ function renderPanel(){
   }
   [...$("speedChips").children].forEach(b => { b.disabled = !on; b.classList.toggle("on", on && Math.abs(s.speed - Number(b.dataset.v)) < 0.001); });
   $("speedRange").disabled = !on; $("speedAll").disabled = !on;
-  if (on){ $("speedRange").value = s.speed; $("speedOut").textContent = fmtSpeed(s.speed); }
+  $("speedNum").disabled = !on;
+  if (on){ $("speedRange").value = speedToSlider(s.speed); if (document.activeElement !== $("speedNum")) $("speedNum").value = s.speed; }
 }
 function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 function updateHead(follow){
@@ -2595,7 +2935,12 @@ function scrubTo(e){
 /* ---------- controls ---------- */
 SPEEDS.forEach(v => { const b = document.createElement("button"); b.className = "chip"; b.dataset.v = v; b.textContent = fmtSpeed(v); b.disabled = true;
   b.onclick = () => { setSpeed(v, false, true); }; $("speedChips").appendChild(b); });
-$("speedRange").addEventListener("input", e => { $("speedOut").textContent = fmtSpeed(Number(e.target.value)); setSpeed(Number(e.target.value), false, false); });
+$("speedRange").addEventListener("input", e => { const v = sliderToSpeed(Number(e.target.value)); $("speedNum").value = v; setSpeed(v, false, false); });
+$("speedNum").addEventListener("change", e => {
+  let v = Number(e.target.value);
+  if (!isFinite(v) || v <= 0){ renderPanel(); return; }
+  v = Math.min(SPMAX, Math.max(SPMIN, v)); e.target.value = v; setSpeed(v, false, true);
+});
 $("speedRange").addEventListener("change", () => { speedSnapTaken = false; });
 $("speedAll").onclick = () => { const s = segs.find(x => x.id === sel); if (s){ setSpeed(s.speed, true, true); toast(`全部片段都改成 ${fmtSpeed(s.speed)}`); } };
 $("playBtn").onclick = () => playing ? pause() : play();
@@ -2616,6 +2961,7 @@ window.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove
 window.addEventListener("resize", () => scheduleRender());
 
 document.addEventListener("keydown", e => {
+  if (!$("convBg").hidden) return;
   if (!$("sheetBg").hidden){ if (e.key === "Escape" && !exporting) closeSheet(); return; }
   const tag = e.target.tagName;
   if (tag === "INPUT" && e.target.type !== "range") return;
